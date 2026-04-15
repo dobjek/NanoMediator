@@ -1,0 +1,83 @@
+name: "NanoMediator — CI/CD"
+
+on:
+  push:
+    branches: [ main, "feature/**", "hotfix/**" ]
+  pull_request:
+    types: [ opened, closed, edited, reopened, synchronize ]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── Build & Test (runs on every push and PR) ───────────────
+  build-and-test:
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.state == 'open')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore NanoMediator/NanoMediator.sln
+
+      - name: Build
+        run: dotnet build NanoMediator/NanoMediator.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test NanoMediator.Tests/NanoMediator.Tests.csproj --configuration Release --no-build
+
+  # ── Publish NuGet (only on merge to main via release/hotfix) ─
+  publish:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.base_ref == 'main' &&
+      (startsWith(github.head_ref, 'release/') || startsWith(github.head_ref, 'hotfix/'))
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Extract version from branch name
+        id: version
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          VERSION="${BRANCH#*/}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Restore
+        run: dotnet restore NanoMediator/NanoMediator.sln
+
+      - name: Build
+        run: dotnet build NanoMediator/NanoMediator.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test NanoMediator.Tests/NanoMediator.Tests.csproj --configuration Release --no-build
+
+      - name: Pack
+        run: dotnet pack NanoMediator/NanoMediator.csproj --configuration Release --no-build -p:PackageVersion=${{ steps.version.outputs.version }} --output ./nupkg
+
+      - name: Push to nuget.org
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source "https://api.nuget.org/v3/index.json" --skip-duplicate

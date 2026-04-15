@@ -1,0 +1,21 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet
+*.nupkg
+nupkg/
+**/packages/
+
+## IDE
+.vs/
+.vscode/
+*.DotSettings.user
+
+## OS
+Thumbs.db
+.DS_Store
