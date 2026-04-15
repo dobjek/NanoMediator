@@ -23,7 +23,7 @@ MediatR is great, but it's more than most projects need. NanoMediator gives you 
 dotnet add package NanoMediator
 ```
 
-**Requirements:** .NET 10+
+**Requirements:** .NET 8+
 
 ## Quick Start
 
