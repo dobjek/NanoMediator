@@ -17,6 +17,11 @@ internal abstract class RequestHandlerWrapperBase<TResponse>
 /// <summary>
 /// Strongly-typed wrapper that resolves the handler and builds the behavior pipeline.
 /// One instance per (TRequest, TResponse) pair, cached for the lifetime of the app.
+///
+/// Optimizations:
+/// - Zero-behavior fast path: calls handler directly, no array or closure allocations.
+/// - Behaviors resolved once per call via GetServices (no Reverse/ToArray).
+/// - Pipeline built by iterating behaviors in reverse index order to avoid LINQ allocations.
 /// </summary>
 internal sealed class RequestHandlerWrapper<TRequest, TResponse>
     : RequestHandlerWrapperBase<TResponse>
@@ -29,27 +34,33 @@ internal sealed class RequestHandlerWrapper<TRequest, TResponse>
     {
         var typedRequest = (TRequest)request;
 
-        // Resolve the actual handler
         var handler = serviceProvider
             .GetRequiredService<IRequestHandler<TRequest, TResponse>>();
 
-        // Terminal delegate — the handler itself
-        RequestHandlerDelegate<TResponse> terminal =
+        // Resolve behaviors into a list — avoids Reverse() + ToArray() LINQ allocations.
+        // GetServices returns them in registration order (outermost first).
+        var behaviors = serviceProvider
+            .GetServices<IPipelineBehavior<TRequest, TResponse>>();
+
+        // Use IReadOnlyList if available (Microsoft DI returns a List<T>),
+        // otherwise fall back to materialization.
+        var list = behaviors as IReadOnlyList<IPipelineBehavior<TRequest, TResponse>>
+            ?? [.. behaviors];
+
+        // Fast path: no behaviors registered — call handler directly, zero closures.
+        if (list.Count == 0)
+            return handler.Handle(typedRequest, cancellationToken);
+
+        // Build pipeline by walking behaviors in reverse (last registered = innermost).
+        // Terminal delegate is the handler itself.
+        RequestHandlerDelegate<TResponse> pipeline =
             () => handler.Handle(typedRequest, cancellationToken);
 
-        // Resolve all pipeline behaviors in registration order
-        var behaviors = serviceProvider
-            .GetServices<IPipelineBehavior<TRequest, TResponse>>()
-            .Reverse()
-            .ToArray();
-
-        // Wrap behaviors around the terminal (reverse so first-registered is outermost)
-        var pipeline = terminal;
-        foreach (var behavior in behaviors)
+        for (var i = list.Count - 1; i >= 0; i--)
         {
-            var next = pipeline; // capture for closure
-            var b = behavior;
-            pipeline = () => b.Handle(typedRequest, next, cancellationToken);
+            var behavior = list[i];
+            var next = pipeline;
+            pipeline = () => behavior.Handle(typedRequest, next, cancellationToken);
         }
 
         return pipeline();
