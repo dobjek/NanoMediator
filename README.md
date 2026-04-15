@@ -148,6 +148,15 @@ NanoMediator intentionally omits features most projects don't use:
 - **Source generators** — handler registration uses reflection at startup (once). For ~100 handlers this takes < 1ms.
 - **`TypeEvaluator` / handler filtering** — register specific handlers manually if you need selective scanning.
 
+## Sample App
+
+See [`samples/Sample.cs`](samples/Sample.cs) — a single-file .NET 10 app demonstrating all features. No `.csproj` needed:
+
+```bash
+cd samples
+dotnet run Sample.cs
+```
+
 ## API Reference
 
 | Type | Description |
